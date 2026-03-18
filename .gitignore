@@ -4,3 +4,5 @@
 *.tfstate
 .DS_Store
 .concourse.env
+terraform.tfvars
+*.pem

@@ -2,8 +2,8 @@
 # Run with sudo.
 
 # Create users and groups
-addgroup --system docker
-useradd concourse
+getent group docker >/dev/null || addgroup --system docker
+id -u concourse >/dev/null 2>&1 || useradd concourse
 
 # Mount persistent disk
 DISK_DEVICE=$2
@@ -11,7 +11,9 @@ DISK_DEVICE=$2
 
 # Configure docker storage
 mkdir -p /workspace/docker
-ln -s /workspace/docker /var/lib/docker || true
+if [ ! -e /var/lib/docker ]; then
+  ln -s /workspace/docker /var/lib/docker
+fi
 
 # Install software
 apt-get -qq update

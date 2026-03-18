@@ -7,12 +7,26 @@ rsa_key_size=4096
 data_path="/workspace/certbot/conf/live/$domain"
 export CONCOURSE_EXTERNAL_DOMAIN=$domain          # For nginx
 
-cd  "$(realpath $(dirname "$0"))/.."
+cd "$(realpath "$(dirname "$0")")/.."
+
+mkdir -p /workspace/worker-state
 
 echo "### Loading docker container versions ..."
 source docker-versions.sh
 
-# Always generate keys as there could be some change in updated concourse
+# Concourse worker uses the containerd runtime which requires cgroups v2.
+# Check BEFORE starting any services so the worker doesn't fail immediately.
+if [ ! -f /sys/fs/cgroup/cgroup.controllers ] ; then
+  echo "### REBOOTING for cgroups v2 ###"
+  GRUB_FILE=/etc/default/grub
+  sed -i -e 's/ systemd\.unified_cgroup_hierarchy=[01]//g' -e 's/ cgroup_no_v1=all//g' "$GRUB_FILE"
+  sed -i '/^GRUB_CMDLINE_LINUX\(_DEFAULT\)\?="/ s/"$/ systemd.unified_cgroup_hierarchy=1 cgroup_no_v1=all"/' "$GRUB_FILE"
+  update-grub
+  grub-mkconfig -o /boot/efi/EFI/ubuntu/grub.cfg || true
+  shutdown -r now
+fi
+
+# Always generate keys  as there could be some change in updated concourse
 echo "### Generating Keys ..."
 ./scripts/generate_keys.sh
 
@@ -70,10 +84,3 @@ curl -k --retry 30 --retry-delay 1 --max-time 1 --retry-all-errors --fail 'https
 
 # Download and install the fly CLI from local Concourse instance
 curl -o /usr/local/bin/fly -k 'https://localhost/api/v1/cli?arch=amd64&platform=linux' && chmod +x /usr/local/bin/fly
-
-# If cgroups are v2 then we need to switch to v1
-if [ -f /sys/fs/cgroup/cgroup.controllers ] ; then
-  sed -i '/^GRUB_CMDLINE_LINUX=\"\"/ s/\"$/systemd.unified_cgroup_hierarchy=0\"/' /etc/default/grub
-  grub-mkconfig -o /boot/efi/EFI/ubuntu/grub.cfg
-  shutdown -r
-fi

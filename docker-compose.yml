@@ -19,6 +19,8 @@ services:
       options:
         max-file: "5"
         max-size: "10m"
+    networks:
+      - concourse
 
   certbot:
     image: certbot/certbot:${certbot_version:?error}
@@ -33,7 +35,7 @@ services:
       options:
         max-file: "5"
         max-size: "10m"
-    
+
   db:
     image: postgres:${postgres_version:?error}
     restart: always
@@ -49,12 +51,13 @@ services:
       options:
         max-file: "5"
         max-size: "10m"
+    networks:
+      - concourse
 
   web:
     image: concourse/concourse:${concourse_version:?error}
     restart: always
     command: web
-    links: [db]
     depends_on: [db]
     ports: ["8080:8080"]
     volumes: ["./scripts/web:/concourse-keys"]
@@ -77,6 +80,8 @@ services:
       options:
         max-file: "5"
         max-size: "10m"
+    networks:
+      - concourse
 
   worker:
     image: concourse/concourse:${concourse_version:?error}
@@ -84,22 +89,34 @@ services:
     command: worker
     privileged: true
     cap_add:
-    - ALL
+      - ALL
     security_opt:
       - seccomp:unconfined
       - apparmor:unconfined
+    cgroup: host
     depends_on: [web]
-    volumes: ["./scripts/worker:/concourse-keys"]
-    links: [web]
+    volumes:
+      - "./scripts/worker:/concourse-keys"
+      - "/sys/fs/cgroup:/sys/fs/cgroup:rw"
+      - "/workspace/worker-state:/worker-state"
     stop_signal: SIGUSR2
     environment:
       CONCOURSE_TSA_HOST: web:2222
       CONCOURSE_TSA_PUBLIC_KEY: /concourse-keys/tsa_host_key.pub
       CONCOURSE_TSA_WORKER_PRIVATE_KEY: /concourse-keys/worker_key
+      # Use containerd runtime — requires cgroups v2
+      CONCOURSE_RUNTIME: containerd
       CONCOURSE_CONTAINERD_DNS_SERVER: "1.1.1.1,8.8.8.8"
-      CONCOURSE_GARDEN_DNS_SERVER: "1.1.1.1,8.8.8.8"
+      # Persist worker state on EBS so volumes survive container restarts
+      CONCOURSE_WORK_DIR: /worker-state
     logging:
       driver: "json-file"
       options:
         max-file: "5"
         max-size: "10m"
+    networks:
+      - concourse
+
+networks:
+  concourse:
+    driver: bridge
